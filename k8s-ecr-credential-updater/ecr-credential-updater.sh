@@ -53,7 +53,7 @@ apply_secret() {
         --dry-run=true -o yaml \
         --type=kubernetes.io/dockerconfigjson \
         --from-file=.dockerconfigjson="${ECR_SECRET_FILE}" \
-        "${1}" \
+        "${ECR_CREDENTIALS_SECRETNAME}" \
     | kubectl -n "${NS}" apply -f -
 }
 
