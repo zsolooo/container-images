@@ -28,7 +28,7 @@ main() {
         # Manage the pullSecret for service account
         case "${SERVICE_ACCOUNT_ACTION}" in
             create)
-                create_service_account "${NS}" ;;
+                create_service_account "${NS}"
                 patch_service_account "${NS}" ;;
             patch)
                 patch_service_account "${NS}" ;;
