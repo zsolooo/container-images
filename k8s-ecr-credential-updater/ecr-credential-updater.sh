@@ -7,11 +7,11 @@ set -euo pipefail
 #   AWS_SECRET_ACCESS_KEY - (optional) Secret access key, don't set it if you want to use instance profile
 
 # Default values
-export AWS_REGISTRY_ACCOUNT_IDS="${TARGET_NAMESPACE:-self}"
+export AWS_REGISTRY_ACCOUNT_IDS="${AWS_REGISTRY_ACCOUNT_IDS:-self}"
 export TARGET_NAMESPACES="${TARGET_NAMESPACE:-kube-system default}"
-ECR_CREDENTIALS_SECRETNAME="${ECR_CREDENTIALS_SECRETNAME:-ecr-credentials}"
-SERVICE_ACCOUNT_ACTION="${SERVICE_ACCOUNT:-patch}"
-SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-default}"
+export ECR_CREDENTIALS_SECRETNAME="${ECR_CREDENTIALS_SECRETNAME:-ecr-credentials}"
+export SERVICE_ACCOUNT_ACTION="${SERVICE_ACCOUNT:-patch}"
+export SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-default}"
 
 main() {
     # Temporary file for the secret
