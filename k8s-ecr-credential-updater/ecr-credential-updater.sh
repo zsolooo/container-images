@@ -1,34 +1,75 @@
 #!/bin/bash
 set -euo pipefail
 
-# Use standard AWS environment variables to configure AWS parameters:
-#   AWS_DEFAULT_REGION    - Set AWS region
+# Use standard AWS-CLI environment variables to configure AWS parameters:
+#   AWS_DEFAULT_REGION    - Set Default AWS region
 #   AWS_ACCESS_KEY_ID     - (optional) Access key id, don't set it if you want to use instance profile
 #   AWS_SECRET_ACCESS_KEY - (optional) Secret access key, don't set it if you want to use instance profile
 
+# Registry secret related parameters
+#   AWS_REGISTRY_REGIONS - space separated list of REGIONS to create secrets for,
+#                         "self" means using AWS_DEFAULT_REGION
+#   AWS_REGISTRY_IDS     - space separated list of registry (account ids), format ID[:REGION]
+#                          add ":REGION" for region specific secret, using "self" if not specified, REGION should be listed also in AWS_REGISTRY_REGIONS
+#
+# For example, if assuming 123456789012 as self account id:
+# Defaults:
+#   AWS_DEFAULT_REGION="eu-central-1"
+#   AWS_REGISTRY_REGIONS="self"
+#   AWS_REGISTRY_IDS="self"
+#   -> generates a single secret with single registry id:
+#      ecr-credential-self:
+#       - 123456789012.dkr.ecr.eu-central-1.amazonaws.com
+#
+# Multiple Registries in different regions:
+#   AWS_DEFAULT_REGION="eu-central-1"
+#   AWS_REGISTRY_REGIONS="self 602401143452"
+#   AWS_REGISTRY_IDS="self  602401143452:us-west-2"
+#   -> generates a 2 secrets with multiple registry id:
+#      ecr-credential-self:
+#       - 123456789012.dkr.ecr.eu-central-1.amazonaws.com
+#      ecr-credential-us-west-2:
+#       - 123456789012.dkr.ecr.us-west-2.amazonaws.com
+#       - 602401143452.dkr.ecr.us-west-2.amazonaws.com
+
 # Default values
-export AWS_REGISTRY_ACCOUNT_IDS="${AWS_REGISTRY_ACCOUNT_IDS:-self}"
+export AWS_REGISTRY_REGIONS="${AWS_REGISTRY_REGIONS:-self}"
+export AWS_REGISTRY_IDS="${AWS_REGISTRY_IDS:-self}"
 export TARGET_NAMESPACES="${TARGET_NAMESPACE:-kube-system default}"
-export ECR_CREDENTIALS_SECRETNAME="${ECR_CREDENTIALS_SECRETNAME:-ecr-credentials}"
+export ECR_CREDENTIALS_SECRETNAME_PREFIX="${ECR_CREDENTIALS_SECRETNAME_PREFIX:-ecr-credentials}"
 export SERVICE_ACCOUNT_ACTION="${SERVICE_ACCOUNT:-patch}"
 export SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-default}"
 
 main() {
     # Temporary file for the secret
-    ECR_SECRET_FILE=$(mktemp)
-
-    if [[ "${AWS_REGISTRY_ACCOUNT_IDS}" == *"self"* ]] ; then
-        SELF_ACCOUNT_ID="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)"
-        export AWS_REGISTRY_ACCOUNT_IDS="$(echo ${AWS_REGISTRY_ACCOUNT_IDS} | sed "s/self/${SELF_ACCOUNT_ID}/g")"
-    fi
+    ECR_SECRET_DIR=$(mktemp -d /tmp/ecr.XXXXXXXX)
+        
     # Get credentials from AWS ECR API
-    log "Requesting ECR token with aws-cli..."
-    request_credential > "${ECR_SECRET_FILE}"
+    for REGION in ${AWS_REGISTRY_REGIONS}; do
+        REGION_REGISTRY_IDS=""
+        for REGISTRY in ${AWS_REGISTRY_IDS}; do
+            REGISTRY_ID="$(echo ${REGISTRY} | cut -f1 -d:)"
+            REGISTRY_REGION="$(echo ${REGISTRY} | cut -f2 -d:)"
+            REGISTRY_REGION="${REGISTRY_REGION:-self}"
+
+            if [[ "${AWS_REGISTRY_ACCOUNT_IDS}" == *"self"* ]] ; then
+                REGION_ID="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)"
+            fi
+
+            if [ "${REGISTRY_REGION}" == "${REGION}"]; then
+                REGION_REGISTRY_IDS="${REGION_REGISTRY_IDS} ${REGISTRY_ID}"
+            fi
+        done
+
+        log "Requesting ECR token with aws-cli for ${REGION} region with ids: [${REGION_REGISTRY_IDS}]..."
+        request_credential "${REGION}" "${REGION_REGISTRY_IDS}" > "${ECR_SECRET_DIR}/${REGION}"
 
     # Update Kubernetes secrets in each target namespace
     for NS in ${TARGET_NAMESPACES}; do
-        # Create or update Kubernetes secret
-        apply_secret "${NS}"
+        for REGION in ${AWS_REGISTRY_REGIONS}; do
+            # Create or update Kubernetes secret
+            apply_secret "${NS}" "${REGION}"
+        done
 
         # Manage the pullSecret for service account
         case "${SERVICE_ACCOUNT_ACTION}" in
@@ -47,8 +88,15 @@ main() {
 }
 
 request_credential() {
-    aws ecr get-authorization-token --registry-ids ${AWS_REGISTRY_ACCOUNT_IDS} \
-    | jq '[ .authorizationData[] | { "key": (.proxyEndpoint), "value": { "auth": (.authorizationToken) } } ] | { "auths": (from_entries) }'
+        REGION="${1:-self}"
+        REGISTRY_IDS="${2}"
+        if [ "${REGION}" != "self" -a "${REGION}" != "" ] ; then
+            export AWS_DEFAULT_REGION="${REGION}"
+        fi
+
+        aws ecr get-authorization-token --registry-ids ${REGISTRY_IDS} \
+        | jq '[ .authorizationData[] | { "key": (.proxyEndpoint), "value": { "auth": (.authorizationToken) } } ] | { "auths": (from_entries) }'
+    done
 }
 
 apply_secret() {
@@ -73,10 +121,12 @@ create_service_account() {
 
 patch_service_account() {
     NS="${1}"
-
+    PATCH_JSON='{"imagePullSecrets": []}'
+    for REGION in ${AWS_REGISTRY_REGIONS}; do
+        PATCH_JSON=$(jq ".imagePullSecrets |= . + [{\"name\": \"${ECR_CREDENTIALS_SECRETNAME}-${REGION}\"}]" <<< "${PATCH_JSON}")
+    done
     log "Patching service-account \"${SERVICE_ACCOUNT}\" in namespace ${NS}..."
-    kubectl -n "${NS}" patch serviceaccount "${SERVICE_ACCOUNT}" \
-        -p "{\"imagePullSecrets\": [{\"name\": \"${ECR_CREDENTIALS_SECRETNAME}\"}]}"
+    kubectl -n "${NS}" patch serviceaccount "${SERVICE_ACCOUNT}" -p "${PATCH_JSON}"
 }
 
 log() {
