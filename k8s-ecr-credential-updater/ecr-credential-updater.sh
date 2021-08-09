@@ -18,7 +18,7 @@ main() {
     ECR_SECRET_FILE=$(mktemp)
 
     if [[ "${AWS_REGISTRY_ACCOUNT_IDS}" == *"self"* ]] ; then
-        SELF_ACCOUNT_ID="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq .accountId)"
+        SELF_ACCOUNT_ID="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)"
         export AWS_REGISTRY_ACCOUNT_IDS="$(echo ${AWS_REGISTRY_ACCOUNT_IDS} | sed "s/self/${SELF_ACCOUNT_ID}/g")"
     fi
     # Get credentials from AWS ECR API
