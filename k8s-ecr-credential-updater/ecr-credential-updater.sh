@@ -47,7 +47,6 @@ main() {
 }
 
 request_credential() {
-ACCOUNT_ID = "$1"
     aws ecr get-authorization-token --registry-ids ${AWS_REGISTRY_ACCOUNT_IDS} \
     | jq '[ .authorizationData[] | { "key": (.proxyEndpoint), "value": { "auth": (.authorizationToken) } } ] | { "auths": (from_entries) }'
 }
