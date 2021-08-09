@@ -53,7 +53,7 @@ main() {
             REGISTRY_REGION="${REGISTRY_REGION:-self}"
 
             if [ "${REGISTRY_ID}" == "self" ] ; then
-                REGION_ID="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)"
+                REGISTRY_ID="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)"
             fi
 
             if [ "${REGISTRY_REGION}" == "${REGION}" ]; then
