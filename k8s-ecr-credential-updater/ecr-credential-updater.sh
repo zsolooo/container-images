@@ -124,7 +124,7 @@ patch_service_account() {
     NS="${1}"
     PATCH_JSON='{"imagePullSecrets": []}'
     for REGION in ${AWS_REGISTRY_REGIONS}; do
-        PATCH_JSON=$(jq ".imagePullSecrets |= . + [{\"name\": \"${ECR_CREDENTIALS_SECRETNAME}-${REGION}\"}]" <<< "${PATCH_JSON}")
+        PATCH_JSON=$(jq ".imagePullSecrets |= . + [{\"name\": \"${ECR_CREDENTIALS_SECRETNAME_PREFIX}-${REGION}\"}]" <<< "${PATCH_JSON}")
     done
     log "Patching service-account \"${SERVICE_ACCOUNT}\" in namespace ${NS}..."
     kubectl -n "${NS}" patch serviceaccount "${SERVICE_ACCOUNT}" -p "${PATCH_JSON}"
