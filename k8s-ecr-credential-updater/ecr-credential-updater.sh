@@ -7,7 +7,8 @@ set -euo pipefail
 #   AWS_SECRET_ACCESS_KEY - (optional) Secret access key, don't set it if you want to use instance profile
 
 # Default values
-TARGET_NAMESPACES="${TARGET_NAMESPACE:-kube-system default}"
+export AWS_REGISTRY_ACCOUNT_IDS="${TARGET_NAMESPACE:-self}"
+export TARGET_NAMESPACES="${TARGET_NAMESPACE:-kube-system default}"
 ECR_CREDENTIALS_SECRETNAME="${ECR_CREDENTIALS_SECRETNAME:-ecr-credentials}"
 SERVICE_ACCOUNT_ACTION="${SERVICE_ACCOUNT:-patch}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-default}"
@@ -16,6 +17,10 @@ main() {
     # Temporary file for the secret
     ECR_SECRET_FILE=$(mktemp)
 
+    if [[ "${AWS_REGISTRY_ACCOUNT_IDS}" == *"self"* ]] ; then
+        SELF_ACCOUNT_ID="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq .accountId)"
+        export AWS_REGISTRY_ACCOUNT_IDS="$(echo ${AWS_REGISTRY_ACCOUNT_IDS} | sed "s/self/${SELF_ACCOUNT_ID}/g")"
+    fi
     # Get credentials from AWS ECR API
     log "Requesting ECR token with aws-cli..."
     request_credential > "${ECR_SECRET_FILE}"
@@ -42,8 +47,9 @@ main() {
 }
 
 request_credential() {
-    aws ecr get-authorization-token \
-    | jq '{"auths":{ (.authorizationData[0].proxyEndpoint) : {"auth": .authorizationData[0].authorizationToken}}}'
+ACCOUNT_ID = "$1"
+    aws ecr get-authorization-token --registry-ids ${AWS_REGISTRY_ACCOUNT_IDS} \
+    | jq '[ .authorizationData[] | { "key": (.proxyEndpoint), "value": { "auth": (.authorizationToken) } } ] | { "auths": (from_entries) }'
 }
 
 apply_secret() {
